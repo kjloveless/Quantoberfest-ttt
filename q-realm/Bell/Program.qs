@@ -20,6 +20,8 @@
         SetQubitState(initial, q1);
         SetQubitState(Zero, q2);
 
+        H(q1); // Add the H operation after initialization and before measurement.
+
         // measure each qubit
         let resultQ1 = M(q1);
         let resultQ2 = M(q2);
