@@ -21,7 +21,7 @@ namespace tic_tac_toe {
 
             set quantumBoard = PlacePiece(quantumBoard, 0, qXs[0]);
             set quantumBoard = PlacePiece(quantumBoard, 4, qXs[0]);
-            mutable (circ, cycle) = DetectCycle(0, qOs[1], qOs[1], quantumBoard);    
+            mutable (circ, cycle) = DetectCycle(0, qXs[1], qXs[1], quantumBoard);    
             //if circ { Message($"Cycle {circ} on Square 1 : {cycle}"); }
 
             set quantumBoard = PlacePiece(quantumBoard, 1, qOs[0]);
@@ -29,7 +29,7 @@ namespace tic_tac_toe {
 
             set quantumBoard = PlacePiece(quantumBoard, 0, qXs[1]);
             set quantumBoard = PlacePiece(quantumBoard, 3, qXs[1]);
-            set (circ, cycle) = DetectCycle(0, qOs[1], qOs[1], quantumBoard);        
+            set (circ, cycle) = DetectCycle(0, qXs[1], qXs[1], quantumBoard);        
             //if circ { Message($"Cycle {circ} on Square 0 : {cycle}"); }
             //set (_, cycle) = DetectCycle(3, qOs[1], qOs[1], quantumBoard);        
             //Message($"Cycle on Square {3} is {cycle}");
@@ -42,24 +42,45 @@ namespace tic_tac_toe {
             //if (circ) { Message($"Cycle {circ} on Square 3 : {cycle}"); }
             
             PrintBoard(quantumBoard, classicBoard);
-            
-            mutable idx = 1;
-            mutable n = -1;
+                        
+            mutable qBoard = quantumBoard;
 
-            for box in cycle {   
-                //let c = [cycle[ModI(n, 4)], cycle[ModI(n+1, 4)], cycle[ModI(n+2, 4)], cycle[ModI(n+3, 4)]];
-                let c = Exclude(RangeAsIntArray(0..n), cycle);
-                set n += 1;
-                set (idx, quantumBoard) = CollapseSquare(box, c, quantumBoard);
-                if not (idx == -1) {
-                    let sq = Head(quantumBoard[box]);
-                    set classicBoard w/= box <- GetToken(sq, qXs);
-                    PrintCollapse(box + 1, classicBoard[box], sq);
+            repeat  {          
+                mutable idx = 1;
+                mutable n = -1;
+                mutable count = 0;
+                mutable same = false;
+
+                for box in cycle {   
+                    let c = Exclude(RangeAsIntArray(0..n), cycle);
+                    set n += 1;
+                    set (idx, qBoard) = CollapseSquare(box, c, qBoard);
+                    if not (idx == -1) {
+                        let sq = Head(qBoard[box]);
+                        set classicBoard w/= box <- GetToken(sq, qXs);
+                        PrintCollapse(box + 1, classicBoard[box], sq);
+                        set count += 1;
+                    }
+                }    
+
+                set n = 0;
+                for box in cycle {
+                    let c = Exclude(RangeAsIntArray(0..n), cycle);
+                    set n += 1;
+                    let board = Subarray(c, qBoard);
+                    mutable smallBoard = EmptyArray<Qubit>();
+                    for b in board {
+                        set smallBoard = smallBoard + b;
+                    }
+                    set same = same or IsPresentInArray(qBoard[box][0], smallBoard);
                 }
+            } until count == Length(cycle) and not same
+            fixup {
+                set qBoard = quantumBoard;                 
             }
 
             Message("");
-            PrintBoard(quantumBoard, classicBoard);
+            PrintBoard(qBoard, classicBoard);
             Message("\n\n");
         }
     }
@@ -170,9 +191,10 @@ namespace tic_tac_toe {
                 }
             }
         }
-        
+                
+        if result == -1 { return (result, Board); }
+
         let idx = result;
-        if idx == -1 { return (idx, Board); }
         mutable board = Board;
         mutable cycle = Cycle;
         mutable Q = Qubits[idx]; 
@@ -188,31 +210,35 @@ namespace tic_tac_toe {
                 } elif Length(square) > 1
                 {
                     if not IsEmpty(cycle) {
+                        mutable done = false;
                         for s in square {
-                            let was = IsPresentInArray(s, wasPlaced);
-                            if not was {
-                                let needs = IsPresentInArray(s, needsPlaced);
-                                if needs {
-                                    set square = [s];
+                            if not done {
+                                let was = IsPresentInArray(s, wasPlaced);
+                                if not was {
+                                    let needs = IsPresentInArray(s, needsPlaced);
+                                    if needs {
+                                        set square = [s];
+                                        set wasPlaced += square;
+                                        let i = IndexOf((a) -> (s == a), needsPlaced);
+                                        set needsPlaced = Swapped(0, i, needsPlaced);
+                                        set needsPlaced = Subarray(RangeAsIntArray(1..(Length(needsPlaced)-1)), needsPlaced);
+                                    } else
+                                    {
+                                        set needsPlaced += [s];
+                                    }
+                                } else 
+                                { 
+                                    let predicate = (a) -> not (a == s);
+                                    set square = Filtered(predicate(_), Board[r]); 
                                     set wasPlaced += square;
-                                    let i = IndexOf((a) -> (s == a), needsPlaced);
-                                    set needsPlaced = Swapped(0, i, needsPlaced);
-                                    set needsPlaced = Subarray(RangeAsIntArray(1..(Length(needsPlaced)-1)), needsPlaced);
-                                } else
-                                {
-                                    set needsPlaced += [s];
-                                }
-                            } else 
-                            { 
-                                let predicate = (a) -> not (a == s);
-                                set square = Filtered(predicate(_), Board[r]); 
-                                set wasPlaced += square;
-                                let q = square[0];
+                                    let q = square[0];
+                                    set done = true;
                                 
-                                let i = IndexOf((a) -> (q == a), needsPlaced);
-                                if i > -1 {
-                                    set needsPlaced = Swapped(0, i, needsPlaced);
-                                    set needsPlaced = Subarray(RangeAsIntArray(1..(Length(needsPlaced)-1)), needsPlaced);
+                                    let i = IndexOf((a) -> (q == a), needsPlaced);
+                                    if i > -1 {
+                                        set needsPlaced = Swapped(0, i, needsPlaced);
+                                        set needsPlaced = Subarray(RangeAsIntArray(1..(Length(needsPlaced)-1)), needsPlaced);
+                                    }
                                 }
                             }
                         }
@@ -224,6 +250,7 @@ namespace tic_tac_toe {
 
         }
                 
+        //if 
         return (idx, board);
     }
 
@@ -262,7 +289,7 @@ namespace tic_tac_toe {
         }
         Message(b);
 
-        //Message("Classical Board");
+        Message("Classical Board");
         set b = "";
         for i in 0..8 {
             set b = $"{b} | {cBoard[i]}";
@@ -270,7 +297,7 @@ namespace tic_tac_toe {
                 set b = $"{b} |\n----------------\n";
             }
         }
-        //Message(b);
+        Message(b);
     }
 
     function ClassicalBoard() : String[] {
